@@ -10,6 +10,7 @@ from tkinter import ttk, filedialog
 from datetime import datetime
 import hashlib
 import json
+import base64
 
 from bs4 import BeautifulSoup
 
@@ -20,36 +21,27 @@ def open_file_with_default_program(file_path):
         except subprocess.CalledProcessError as e:
             print(f"Error: {e}")
 
-def add_table_row(old_html, col1, col2, col3, col4):
-    # Parse the HTML using BeautifulSoup
+def add_table_row(old_html, col1, col2, col3, col4,classType):
     soup = BeautifulSoup(old_html, 'html.parser')
-
-    # Find the table body
     table_body = soup.find('tbody', {'id': 'file_table'})
-
-    # Create a new table row
     new_row = soup.new_tag('tr')
-
-    
     cell = soup.new_tag('td')
     cell.string = col1
-    #id=col3
     cell['id'] = col3
     cell['onclick'] = "winOpen(this)"
     new_row.append(cell)
-
+    cell=soup.new_tag('td')
+    cell.string=classType
+    cell['id']=col2#dummy
+    cell['class'] = "b64"
+    cell['onclick']="editClassType(this)"
+    new_row.append(cell)
     cell = soup.new_tag('td')
     cell.string = col4
-    #onclick="editRemark(this)"
     cell['onclick'] = "editRemark(this)"
-    #class=b64
     cell['class'] = "b64"
     new_row.append(cell)
-
-    # Append the new row to the table body
     table_body.append(new_row)
-
-    # Convert the modified soup back to a string
     new_html_string = str(soup)
 
     return new_html_string
@@ -144,6 +136,7 @@ class BrowserApp(QMainWindow):
         <thead>
             <tr>
                 <th>File Name</th>
+                <th>classType</th>
                 <!--th>Date Created</th>
                 <th>SHA256</th-->
                 <th>Remark</th>
@@ -172,9 +165,53 @@ class BrowserApp(QMainWindow):
                 cell.innerText = newRemark;
                 // Update the remark in the .diremark file
                 var shaString = cell.parentElement.children[0].id;
-                document.title = JSON.stringify({PYfucn:'create_or_update_diremark_file',sha: shaString, remark: window.btoa(encodeURIComponent( escape( newRemark )))});
+                var classType_value = cell.parentElement.children[1].innerText;
+var rmk=JSON.stringify({classType:window.btoa(encodeURIComponent( escape( classType_value ))),content:window.btoa(encodeURIComponent( escape( newRemark )))});
+
+                document.title = JSON.stringify({PYfucn:'create_or_update_diremark_file',sha: shaString, remark: btoa(rmk)});
             });
         }
+
+function editClassType(cell) {
+    // Get the current class type text
+    var currentClassType = cell.innerText;
+    
+    // Create an input element
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = currentClassType;
+    
+    // Replace the cell's text with the input element
+    cell.innerText = "";
+    cell.appendChild(input);
+    input.focus();
+    
+    // Add an event listener to the input element
+    input.addEventListener("blur", function() {
+        // When the input element loses focus, save the new class type
+        var newClassType = input.value;
+        
+        // Remove the input element and set the cell's text to the new class type
+        cell.removeChild(input);
+        cell.innerText = newClassType;
+        
+        // Update the class type in the .diremark file
+        var shaString = cell.parentElement.children[0].id;
+        var remarkValue = cell.parentElement.children[2].innerText; // Assuming the remark is the third child
+        var rmk = JSON.stringify({
+            classType: window.btoa(encodeURIComponent(escape(newClassType))),
+            content: window.btoa(encodeURIComponent(escape(remarkValue)))
+        });
+
+        document.title = JSON.stringify({
+            PYfucn: 'create_or_update_diremark_file',
+            sha: shaString,
+            remark: btoa(rmk)
+        });
+    });
+}
+
+
         function winOpen(cell) {
             var filename = cell.parentElement.children[0].innerText;
             document.title = JSON.stringify({PYfucn:'open_file_with_default_program',filename:filename});
@@ -226,8 +263,23 @@ class BrowserApp(QMainWindow):
                 sha256_hash = self.calculate_sha256(file_path)
                 # Insert data into the table
                 remarktext = create_or_update_diremark_file(directory_path,sha256_hash,"")
-                self.html_string=add_table_row(self.html_string,file_name, date_created, sha256_hash,remarktext)
-                self.browser.setHtml(self.html_string)
+                #remarktext b64 to str
+                # Decode Base64 to bytes
+                decoded_bytes = base64.b64decode(remarktext)
+                # Convert bytes to string
+                decoded_string = decoded_bytes.decode('utf-8')
+                #JSON phrase decoded_string
+                
+                try:
+                    decoded_json = json.loads(decoded_string)
+                    class_type_value = decoded_json.get("classType")
+                    remarktext_value = decoded_json.get("content")
+                    self.html_string = add_table_row(self.html_string, file_name, date_created, sha256_hash, remarktext_value, class_type_value)
+                    self.browser.setHtml(self.html_string)
+                except json.JSONDecodeError as e:
+                    print("JSON load fail:", str(e))
+                    self.html_string = add_table_row(self.html_string, file_name, date_created, sha256_hash, "", "")
+                    self.browser.setHtml(self.html_string)
 
     def calculate_sha256(self, file_path):
         sha256_hash = hashlib.sha256()
